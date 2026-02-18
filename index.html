@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PC-98風ドット変換</title>
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <h1>PC-98風ドット変換</h1>
+      <section class="controls" id="controls"></section>
+      <section class="canvases">
+        <div>
+          <h3>8:5 トリミング（ドラッグ + ホイールズーム）</h3>
+          <canvas id="sourceCanvas" width="640" height="400"></canvas>
+        </div>
+        <div>
+          <h3>出力 640x400</h3>
+          <canvas id="outCanvas" width="640" height="400"></canvas>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>
