@@ -13,7 +13,6 @@ const BAYER_8X8 = [
 ];
 
 const state = {
-  mode: 'pc98',
   colorCount: 16,
   paletteMode: 'graphic',
   dither: 'ordered',
@@ -22,6 +21,7 @@ const state = {
   saturation: -10,
   contrast: 1,
   sharpness: 0.2,
+  exportScale: 1,
   scale1x: false,
   source: null,
   crop: { x: 0, y: 0, zoom: 1 }
@@ -188,62 +188,36 @@ function applyFinishAdjustments(r, g, b) {
   return [Math.round(rr * 255), Math.round(gg * 255), Math.round(bb * 255)];
 }
 
-function makeDummyImage() {
-  const c = document.createElement('canvas');
-  c.width = 1024;
-  c.height = 768;
-  const ctx = c.getContext('2d');
-  const g = ctx.createLinearGradient(0, 0, c.width, c.height);
-  g.addColorStop(0, '#2541B2');
-  g.addColorStop(0.4, '#5C93FF');
-  g.addColorStop(1, '#F2B880');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, c.width, c.height);
-  for (let i = 0; i < 30; i++) {
-    ctx.fillStyle = `hsl(${(i * 27) % 360} 70% 55% / 0.55)`;
-    ctx.fillRect((i * 47) % c.width, (i * 31) % c.height, 120 + (i % 5) * 20, 80 + (i % 4) * 16);
-  }
-  const img = new Image();
-  img.src = c.toDataURL('image/png');
-  return img;
-}
-
 function renderControls() {
-  const isPc98 = state.mode === 'pc98';
   el.controls.innerHTML = `
-    <label>方式
-      <select id="mode"><option value="pc98">PC-98</option><option value="gb">GB</option><option value="fc">FC</option></select>
-    </label>
     <label>画像読み込み<input type="file" id="file" accept="image/*"></label>
-    <button id="dummy">ダミー画像生成</button>
-    ${
-      isPc98
-        ? `<label>色数
-            <select id="colorCount"><option value="8">8</option><option value="16">16</option></select>
-          </label>
-          <label>パレット選択
-            <select id="paletteMode"><option value="graphic">グラフィックモード</option><option value="game">ゲームモード</option></select>
-          </label>
-          <label>ディザ方式
-            <select id="dither"><option value="off">OFF</option><option value="ordered">Ordered (Bayer 8x8)</option><option value="floyd">Floyd-Steinberg</option></select>
-          </label>
-          <label>Ordered強度 <span id="orderedStrengthLabel"></span>
-            <input type="range" id="orderedStrength" min="0" max="100" />
-          </label>
-          <label>Gamma <span id="gammaLabel"></span>
-            <input type="range" id="gamma" min="1.6" max="2.4" step="0.01" />
-          </label>
-          <label>Saturation <span id="saturationLabel"></span>
-            <input type="range" id="saturation" min="-30" max="10" />
-          </label>
-          <label>Contrast <span id="contrastLabel"></span>
-            <input type="range" id="contrast" min="0.8" max="1.2" step="0.01" />
-          </label>
-          <label>Sharpness <span id="sharpnessLabel"></span>
-            <input type="range" id="sharpness" min="0" max="0.5" step="0.01" />
-          </label>`
-        : ''
-    }
+    <label>色数
+      <select id="colorCount"><option value="8">8</option><option value="16">16</option></select>
+    </label>
+    <label>パレット選択
+      <select id="paletteMode"><option value="graphic">グラフィックモード</option><option value="game">ゲームモード</option></select>
+    </label>
+    <label>ディザ方式
+      <select id="dither"><option value="off">OFF</option><option value="ordered">Ordered (Bayer 8x8)</option><option value="floyd">Floyd-Steinberg</option></select>
+    </label>
+    <label>Ordered強度 <span id="orderedStrengthLabel"></span>
+      <input type="range" id="orderedStrength" min="0" max="100" />
+    </label>
+    <label>Gamma <span id="gammaLabel"></span>
+      <input type="range" id="gamma" min="1.6" max="2.4" step="0.01" />
+    </label>
+    <label>Saturation <span id="saturationLabel"></span>
+      <input type="range" id="saturation" min="-30" max="10" />
+    </label>
+    <label>Contrast <span id="contrastLabel"></span>
+      <input type="range" id="contrast" min="0.8" max="1.2" step="0.01" />
+    </label>
+    <label>Sharpness <span id="sharpnessLabel"></span>
+      <input type="range" id="sharpness" min="0" max="0.5" step="0.01" />
+    </label>
+    <label>書き出し倍率
+      <select id="exportScale"><option value="1">x1</option><option value="2">x2</option><option value="3">x3</option><option value="4">x4</option></select>
+    </label>
     <div class="row"><button id="scale">${state.scale1x ? '表示:fit' : '表示:1x'}</button><button id="download">PNGダウンロード</button></div>
   `;
 
@@ -252,14 +226,6 @@ function renderControls() {
     if (node) node.addEventListener('input', handler);
     return node;
   };
-
-  const mode = document.getElementById('mode');
-  mode.value = state.mode;
-  mode.addEventListener('input', (e) => {
-    state.mode = e.target.value;
-    renderControls();
-    render();
-  });
 
   bind('file', (e) => {
     const file = e.target.files?.[0];
@@ -275,15 +241,6 @@ function renderControls() {
     img.src = url;
   });
 
-  document.getElementById('dummy').addEventListener('click', () => {
-    const img = makeDummyImage();
-    img.onload = () => {
-      state.source = img;
-      state.crop = { x: 0, y: 0, zoom: 1 };
-      render();
-    };
-  });
-
   document.getElementById('scale').addEventListener('click', () => {
     state.scale1x = !state.scale1x;
     el.outCanvas.classList.toggle('oneX', state.scale1x);
@@ -291,13 +248,20 @@ function renderControls() {
   });
 
   document.getElementById('download').addEventListener('click', () => {
+    const scale = state.exportScale;
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = OUT_W * scale;
+    exportCanvas.height = OUT_H * scale;
+    const exportCtx = exportCanvas.getContext('2d');
+    if (!exportCtx) return;
+    exportCtx.imageSmoothingEnabled = false;
+    exportCtx.drawImage(el.outCanvas, 0, 0, exportCanvas.width, exportCanvas.height);
+
     const a = document.createElement('a');
-    a.href = el.outCanvas.toDataURL('image/png');
-    a.download = 'pc98-converted.png';
+    a.href = exportCanvas.toDataURL('image/png');
+    a.download = `pc98_${OUT_W}x${OUT_H}@${scale}x.png`;
     a.click();
   });
-
-  if (!isPc98) return;
 
   const map = [
     ['colorCount', Number],
@@ -307,7 +271,8 @@ function renderControls() {
     ['gamma', Number],
     ['saturation', Number],
     ['contrast', Number],
-    ['sharpness', Number]
+    ['sharpness', Number],
+    ['exportScale', Number]
   ];
 
   map.forEach(([k, cast]) => {
@@ -372,9 +337,6 @@ function renderSource() {
   const y = Math.max(0, Math.min(baseH - ch, (baseH - ch) / 2 + state.crop.y));
   sourceCtx.imageSmoothingQuality = 'high';
   sourceCtx.drawImage(state.source, x, y, cw, ch, 0, 0, OUT_W, OUT_H);
-  sourceCtx.strokeStyle = '#10b981';
-  sourceCtx.lineWidth = 2;
-  sourceCtx.strokeRect(1, 1, OUT_W - 2, OUT_H - 2);
 }
 
 function renderOutput() {
