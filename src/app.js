@@ -17,7 +17,7 @@ const state = {
   paletteMode: 'graphic',
   dither: 'ordered',
   orderedStrength: 10,
-  gamma: 2.1,
+  gammaOffset: 0,
   saturation: -10,
   contrast: 1,
   sharpness: 0.12,
@@ -167,8 +167,14 @@ function selectGamePalette(hist, targetSize, minDist = 14) {
   return selected.slice(0, targetSize);
 }
 
-function applyFinishAdjustments(r, g, b) {
+function gammaFromOffset(gammaOffset) {
+  const gammaOffsetNorm = gammaOffset / 100;
+  return Math.pow(2, -gammaOffsetNorm);
+}
+
+function applyPreAdjustments(r, g, b) {
   const sat = state.saturation / 100;
+  const gamma = gammaFromOffset(state.gammaOffset);
   let rr = r / 255;
   let gg = g / 255;
   let bb = b / 255;
@@ -181,11 +187,31 @@ function applyFinishAdjustments(r, g, b) {
   gg = (gg - 0.5) * state.contrast + 0.5;
   bb = (bb - 0.5) * state.contrast + 0.5;
 
-  rr = Math.pow(Math.max(0, Math.min(1, rr)), 1 / state.gamma);
-  gg = Math.pow(Math.max(0, Math.min(1, gg)), 1 / state.gamma);
-  bb = Math.pow(Math.max(0, Math.min(1, bb)), 1 / state.gamma);
+  rr = Math.pow(Math.max(0, Math.min(1, rr)), 1 / gamma);
+  gg = Math.pow(Math.max(0, Math.min(1, gg)), 1 / gamma);
+  bb = Math.pow(Math.max(0, Math.min(1, bb)), 1 / gamma);
 
   return [Math.round(rr * 255), Math.round(gg * 255), Math.round(bb * 255)];
+}
+
+function applySharpenOnImageData(imageData, amount) {
+  if (amount <= 0) return;
+  const src = new Uint8ClampedArray(imageData.data);
+  const out = imageData.data;
+  for (let y = 1; y < OUT_H - 1; y++) {
+    for (let x = 1; x < OUT_W - 1; x++) {
+      const i = (y * OUT_W + x) * 4;
+      for (let c = 0; c < 3; c++) {
+        const center = src[i + c];
+        const n = src[i - OUT_W * 4 + c];
+        const s = src[i + OUT_W * 4 + c];
+        const e = src[i + 4 + c];
+        const w = src[i - 4 + c];
+        const edge = center * 5 - n - s - e - w;
+        out[i + c] = Math.max(0, Math.min(255, center + (edge - center) * amount));
+      }
+    }
+  }
 }
 
 function lumaFromRgb8(r, g, b) {
@@ -236,8 +262,8 @@ function renderControls() {
     <label>Ordered強度 <span id="orderedStrengthLabel"></span>
       <input type="range" id="orderedStrength" min="0" max="100" />
     </label>
-    <label>Gamma <span id="gammaLabel"></span>
-      <input type="range" id="gamma" min="1.6" max="2.4" step="0.01" />
+    <label>Gamma Offset <span id="gammaOffsetLabel"></span>
+      <input type="range" id="gammaOffset" min="-100" max="100" step="1" />
     </label>
     <label>Saturation <span id="saturationLabel"></span>
       <input type="range" id="saturation" min="-30" max="10" />
@@ -301,7 +327,7 @@ function renderControls() {
     ['paletteMode', (v) => v],
     ['dither', (v) => v],
     ['orderedStrength', Number],
-    ['gamma', Number],
+    ['gammaOffset', Number],
     ['saturation', Number],
     ['contrast', Number],
     ['sharpness', Number],
@@ -320,7 +346,7 @@ function renderControls() {
   });
 
   document.getElementById('orderedStrengthLabel').textContent = state.orderedStrength;
-  document.getElementById('gammaLabel').textContent = state.gamma.toFixed(2);
+  document.getElementById('gammaOffsetLabel').textContent = `${state.gammaOffset > 0 ? '+' : ''}${state.gammaOffset}`;
   document.getElementById('saturationLabel').textContent = `${state.saturation}%`;
   document.getElementById('contrastLabel').textContent = state.contrast.toFixed(2);
   document.getElementById('sharpnessLabel').textContent = state.sharpness.toFixed(2);
@@ -332,7 +358,7 @@ function applyPreset(mode) {
       paletteMode: 'graphic',
       dither: 'ordered',
       orderedStrength: 10,
-      gamma: 2.1,
+      gammaOffset: 0,
       saturation: -10,
       contrast: 1,
       sharpness: 0.08
@@ -341,7 +367,7 @@ function applyPreset(mode) {
     Object.assign(state, {
       paletteMode: 'game',
       dither: 'off',
-      gamma: 1.9,
+      gammaOffset: 0,
       saturation: -5,
       contrast: 1.08,
       sharpness: 0.18
@@ -377,21 +403,11 @@ function renderOutput() {
   const src = sourceCtx.getImageData(0, 0, OUT_W, OUT_H);
   const base = new Uint8ClampedArray(src.data);
 
-  if (state.sharpness > 0) {
-    for (let y = 1; y < OUT_H - 1; y++) {
-      for (let x = 1; x < OUT_W - 1; x++) {
-        const i = (y * OUT_W + x) * 4;
-        for (let c = 0; c < 3; c++) {
-          const center = src.data[i + c];
-          const n = src.data[i - OUT_W * 4 + c];
-          const s = src.data[i + OUT_W * 4 + c];
-          const e = src.data[i + 4 + c];
-          const w = src.data[i - 4 + c];
-          const edge = center * 5 - n - s - e - w;
-          base[i + c] = Math.max(0, Math.min(255, center + (edge - center) * state.sharpness));
-        }
-      }
-    }
+  for (let i = 0; i < base.length; i += 4) {
+    const [rr, gg, bb] = applyPreAdjustments(base[i], base[i + 1], base[i + 2]);
+    base[i] = rr;
+    base[i + 1] = gg;
+    base[i + 2] = bb;
   }
 
   const hist = buildHistogram(base);
@@ -455,10 +471,9 @@ function renderOutput() {
       }
 
       const q = nearestPaletteColor({ r4: to4bit(r), g4: to4bit(g), b4: to4bit(b) }, palette);
-      let [qr, qg, qb] = applyFinishAdjustments(q.r, q.g, q.b);
-      qr = to8bit(to4bit(qr));
-      qg = to8bit(to4bit(qg));
-      qb = to8bit(to4bit(qb));
+      const qr = to8bit(to4bit(q.r));
+      const qg = to8bit(to4bit(q.g));
+      const qb = to8bit(to4bit(q.b));
 
       if (state.dither === 'floyd') {
         const er = r - qr;
@@ -483,6 +498,8 @@ function renderOutput() {
       src.data[i + 3] = 255;
     }
   }
+
+  applySharpenOnImageData(src, state.sharpness);
 
   outCtx.putImageData(src, 0, 0);
 }
