@@ -16,11 +16,11 @@ const state = {
   colorCount: 16,
   paletteMode: 'graphic',
   dither: 'ordered',
-  orderedStrength: 20,
+  orderedStrength: 10,
   gamma: 2.1,
   saturation: -10,
   contrast: 1,
-  sharpness: 0.2,
+  sharpness: 0.12,
   exportScale: 1,
   scale1x: false,
   source: null,
@@ -188,6 +188,39 @@ function applyFinishAdjustments(r, g, b) {
   return [Math.round(rr * 255), Math.round(gg * 255), Math.round(bb * 255)];
 }
 
+function lumaFromRgb8(r, g, b) {
+  return 0.2126 * (r / 255) + 0.7152 * (g / 255) + 0.0722 * (b / 255);
+}
+
+function applyDarkDesaturation(r, g, b) {
+  const luma = lumaFromRgb8(r, g, b);
+  if (luma >= 0.35) return [r, g, b];
+
+  const t = 1 - luma / 0.35;
+  const mixAmount = 0.7 + 0.3 * t;
+  const gray = luma * 255;
+  const rr = r * (1 - mixAmount) + gray * mixAmount;
+  const gg = g * (1 - mixAmount) + gray * mixAmount;
+  const bb = b * (1 - mixAmount) + gray * mixAmount;
+  return [rr, gg, bb];
+}
+
+function pickLineSnapColor(palette) {
+  let best = palette[0];
+  let bestScore = Infinity;
+  for (const c of palette) {
+    const luma = 0.2126 * c.r4 + 0.7152 * c.g4 + 0.0722 * c.b4;
+    const chroma = Math.abs(c.r4 - c.g4) + Math.abs(c.g4 - c.b4) + Math.abs(c.b4 - c.r4);
+    const blueBias = c.b4 > c.r4 && c.b4 >= c.g4 ? -0.3 : 0;
+    const score = luma * 2 + chroma * 1.1 + blueBias;
+    if (score < bestScore) {
+      bestScore = score;
+      best = c;
+    }
+  }
+  return best;
+}
+
 function renderControls() {
   el.controls.innerHTML = `
     <label>画像読み込み<input type="file" id="file" accept="image/*"></label>
@@ -298,11 +331,11 @@ function applyPreset(mode) {
     Object.assign(state, {
       paletteMode: 'graphic',
       dither: 'ordered',
-      orderedStrength: 18,
+      orderedStrength: 10,
       gamma: 2.1,
       saturation: -10,
       contrast: 1,
-      sharpness: 0.1
+      sharpness: 0.08
     });
   } else {
     Object.assign(state, {
@@ -311,7 +344,7 @@ function applyPreset(mode) {
       gamma: 1.9,
       saturation: -5,
       contrast: 1.08,
-      sharpness: 0.28
+      sharpness: 0.18
     });
   }
 }
@@ -363,22 +396,62 @@ function renderOutput() {
 
   const hist = buildHistogram(base);
   const palette = state.paletteMode === 'graphic' ? selectGraphicPalette(hist, state.colorCount) : selectGamePalette(hist, state.colorCount);
+  const lineSnapColor = pickLineSnapColor(palette);
   const work = new Float32Array(base.length);
   for (let i = 0; i < base.length; i++) work[i] = base[i];
+
+  const lumaMap = new Float32Array(OUT_W * OUT_H);
+  for (let y = 0; y < OUT_H; y++) {
+    for (let x = 0; x < OUT_W; x++) {
+      const i = (y * OUT_W + x) * 4;
+      lumaMap[y * OUT_W + x] = lumaFromRgb8(base[i], base[i + 1], base[i + 2]);
+    }
+  }
+
+  const lineMask = new Uint8Array(OUT_W * OUT_H);
+  for (let y = 1; y < OUT_H - 1; y++) {
+    for (let x = 1; x < OUT_W - 1; x++) {
+      const idx = y * OUT_W + x;
+      const center = lumaMap[idx];
+      if (center >= 0.22) continue;
+      let sum = 0;
+      for (let oy = -1; oy <= 1; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          if (ox === 0 && oy === 0) continue;
+          sum += lumaMap[(y + oy) * OUT_W + (x + ox)];
+        }
+      }
+      const localContrast = Math.abs(center - sum / 8);
+      if (localContrast > 0.075) {
+        lineMask[idx] = 1;
+      }
+    }
+  }
 
   for (let y = 0; y < OUT_H; y++) {
     for (let x = 0; x < OUT_W; x++) {
       const i = (y * OUT_W + x) * 4;
+      const idx = y * OUT_W + x;
       let r = work[i];
       let g = work[i + 1];
       let b = work[i + 2];
+      const isLine = lineMask[idx] === 1;
 
-      if (state.dither === 'ordered') {
+      if (state.dither === 'ordered' && !isLine) {
         const bayer = BAYER_8X8[y % 8][x % 8] / 63 - 0.5;
-        const strength = (state.orderedStrength / 100) * 16;
-        r += bayer * strength;
-        g += bayer * strength;
-        b += bayer * strength;
+        const strength = (state.orderedStrength / 100) * 12;
+        const lumBias = bayer * strength;
+        r += lumBias;
+        g += lumBias;
+        b += lumBias;
+      }
+
+      [r, g, b] = applyDarkDesaturation(r, g, b);
+
+      if (isLine) {
+        r = lineSnapColor.r;
+        g = lineSnapColor.g;
+        b = lineSnapColor.b;
       }
 
       const q = nearestPaletteColor({ r4: to4bit(r), g4: to4bit(g), b4: to4bit(b) }, palette);
