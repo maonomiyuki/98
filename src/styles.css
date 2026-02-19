@@ -1,0 +1,80 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #111827;
+  color: #e5e7eb;
+}
+
+.app {
+  max-width: 1300px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  background: #1f2937;
+  padding: 12px;
+  border-radius: 8px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 14px;
+}
+
+select,
+input[type='file'],
+input[type='range'],
+button {
+  background: #111827;
+  color: #e5e7eb;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  padding: 6px;
+}
+
+button {
+  cursor: pointer;
+}
+
+.row {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+}
+
+.canvases {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+  gap: 16px;
+}
+
+.canvasFrame {
+  display: inline-block;
+  border: 1px solid #4b5563;
+  outline: 1px solid #0f172a;
+  background: #000;
+}
+
+canvas {
+  width: 100%;
+  max-width: 640px;
+  aspect-ratio: 8 / 5;
+  border: 0;
+  background: #000;
+  image-rendering: pixelated;
+}
+
+canvas.oneX {
+  width: 640px;
+}
